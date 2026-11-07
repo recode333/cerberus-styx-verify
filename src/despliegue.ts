@@ -60,3 +60,77 @@ export function idDespliegueStyx(cadenas: readonly CadenaDespliegueStyx[], recei
     : { kind: "STYX_DEPLOYMENT", version: 1, chains, receiptPublicKey };
   return createHash("sha256").update(serializarJcs(record), "utf8").digest("hex");
 }
+
+/** The published deployment record (deployments/*.json), as far as a reader needs it. */
+export interface DespliegueStyxPublicado {
+  readonly kind: "STYX_DEPLOYMENT";
+  readonly version: 1;
+  readonly mode?: "TEST_2_OF_2";
+  readonly chains: readonly CadenaDespliegueStyx[];
+  readonly receiptPublicKey: string;
+  readonly deploymentId: string;
+}
+
+/** The only chain ids a two-chain test deployment may use. */
+const PRUEBA_CHAIN_IDS: Readonly<Record<string, string>> = Object.freeze({ POLYGON: "80002", SEI: "1328" });
+
+/**
+ * Checks that a reader or writer may run in two-chain test mode: the pinned
+ * deployment record says TEST_2_OF_2, its id recomputes, it equals the id the
+ * caller pinned, it is on the two test networks, and the chains the caller
+ * wired (contract and writer per chain) are exactly the record's. Throws
+ * CHAIN_WITNESS_TEST_MODE_REFUSED otherwise.
+ */
+export function exigirDespliegueModoPrueba(
+  registro: DespliegueStyxPublicado,
+  idDespliegueEsperado: string,
+  cadenas: readonly { readonly chain: CadenaTestigo; readonly contract: string; readonly writer: string }[],
+): void {
+  const refused = (): never => { throw new Error("CHAIN_WITNESS_TEST_MODE_REFUSED"); };
+  if (registro === null || typeof registro !== "object" || Array.isArray(registro)) refused();
+  let kind: unknown;
+  let version: unknown;
+  let mode: unknown;
+  let chains: unknown;
+  let receiptPublicKey: unknown;
+  let deploymentId: unknown;
+  try {
+    // Each field read once, so a getter cannot answer twice.
+    ({ kind, version, mode, chains, receiptPublicKey, deploymentId } = registro as unknown as Record<string, unknown>);
+  } catch {
+    refused();
+  }
+  if (kind !== "STYX_DEPLOYMENT" || version !== 1 || mode !== "TEST_2_OF_2"
+    || typeof deploymentId !== "string" || deploymentId !== idDespliegueEsperado
+    || !Array.isArray(chains) || chains.length !== 2 || !Array.isArray(cadenas) || cadenas.length !== 2) {
+    refused();
+  }
+  let copia: CadenaDespliegueStyx[] = [];
+  let wiring: { chain: unknown; contract: unknown; writer: unknown }[] = [];
+  try {
+    copia = Array.from(chains as unknown[], (chain) => {
+      if (chain === null || typeof chain !== "object") refused();
+      const { chain: name, chainId, contract, writer } = chain as Record<string, unknown>;
+      return { chain: name, chainId, contract, writer } as CadenaDespliegueStyx;
+    });
+    wiring = Array.from(cadenas as unknown[], (cadena) => {
+      if (cadena === null || typeof cadena !== "object") refused();
+      const { chain, contract, writer } = cadena as Record<string, unknown>;
+      return { chain, contract, writer };
+    });
+  } catch {
+    refused();
+  }
+  let id = "";
+  try {
+    id = idDespliegueStyx(copia, receiptPublicKey as string);
+  } catch {
+    refused();
+  }
+  if (id !== deploymentId) refused();
+  for (const chain of copia) {
+    if (PRUEBA_CHAIN_IDS[chain.chain] !== chain.chainId) refused();
+    const wired = wiring.filter((cadena) => cadena.chain === chain.chain);
+    if (wired.length !== 1 || wired[0]!.contract !== chain.contract || wired[0]!.writer !== chain.writer) refused();
+  }
+}

@@ -21,6 +21,16 @@ keys, no signer, no client data and no service addresses.
 Every signed text uses its own domain prefix, so a signature made for one kind
 of record can never be read as another kind.
 
+## Two-chain test mode
+
+While ALERA is out of the set, the log runs on Polygon Amoy and Sei only.
+A reader with two chains starts only when given the pinned deployment
+record (it must say `TEST_2_OF_2`, its id must recompute, and its contracts
+and writer must be the ones wired) and the deployment id the caller pins.
+Both chains must agree on every value. Every read carries `modo:
+"TEST_2_OF_2"`, and every report built on it must say "2 of 2, test mode"
+(`etiquetaModo`).
+
 ## How to read entry times
 
 Compare "written before" against the latest agreeing chain time, and "written
