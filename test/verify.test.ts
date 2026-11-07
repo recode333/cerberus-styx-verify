@@ -251,3 +251,18 @@ test("SV-09 the deployment id binds chain ids, contracts, writer and receipt key
     assert.throws(() => idDespliegueStyx(bad, pub), /STYX_DEPLOYMENT_INVALID/);
   }
 });
+
+test("SV-10 a two-chain test deployment (POLYGON and SEI) gets its own id, never a three-chain one", () => {
+  const pub = "302a300506032b6570032100" + "11".repeat(32);
+  const polygon = { chain: "POLYGON" as const, chainId: "80002", contract: `0x${"02".repeat(20)}`, writer: `0x${"0a".repeat(20)}` };
+  const sei = { chain: "SEI" as const, chainId: "1328", contract: `0x${"03".repeat(20)}`, writer: `0x${"0a".repeat(20)}` };
+  const alera = { chain: "ALERA" as const, chainId: "100001", contract: `0x${"01".repeat(20)}`, writer: `0x${"0a".repeat(20)}` };
+  const two = idDespliegueStyx([sei, polygon], pub);
+  assert.match(two, /^[0-9a-f]{64}$/u);
+  assert.equal(idDespliegueStyx([polygon, sei], pub), two);
+  assert.notEqual(idDespliegueStyx([alera, polygon, sei], pub), two);
+  // Two chains must be exactly POLYGON and SEI.
+  assert.throws(() => idDespliegueStyx([alera, polygon], pub), /STYX_DEPLOYMENT_INVALID/);
+  assert.throws(() => idDespliegueStyx([polygon, polygon], pub), /STYX_DEPLOYMENT_INVALID/);
+  assert.throws(() => idDespliegueStyx([polygon], pub), /STYX_DEPLOYMENT_INVALID/);
+});
