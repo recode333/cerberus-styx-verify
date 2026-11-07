@@ -1,0 +1,53 @@
+{
+  "note": "Public test vectors. The receipt, statement and lock acceptance were signed once with a throwaway Ed25519 key that was never stored; only its public key is here.",
+  "keccak256": {
+    "": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+    "abc": "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+  },
+  "jcs": {
+    "input": {
+      "b": [
+        1,
+        "x",
+        true,
+        null
+      ],
+      "a": {
+        "d": 1.5,
+        "c": "é"
+      }
+    },
+    "output": "{\"a\":{\"c\":\"é\",\"d\":1.5},\"b\":[1,\"x\",true,null]}"
+  },
+  "moira": {
+    "salt": "fbf0839e511ed52a0b3221f1e52f003df1dd3971ff2b7fedaf12a5f26c8b57af",
+    "material": "0ca8ad9aac09e9d2bc497c7b0214c5aae8d2841d350583e72a11017ec3441370",
+    "clientRef": "8996202e9ee1fb639b52fae9e78727fa375b1e8eeab259fb71ec75371c6ec554",
+    "auditorRef": "a7d4bd0a640d0524fff5e7b76752958b9c6ad9f948b624e2a824883a73fca136",
+    "period": "2025",
+    "commitment": "0x580ea87492a5bda8474b2cf90fedb9bead25be59c8cb55b2071ae1083b548c13",
+    "saltSlot": "0x741a50454f7c28ec338b320e417e0fa5b2f772dd79fe2b3fe0576ede9cc82c4b",
+    "ownerTag": "0x868025e8357323755257ecf86698c26a375dd19307fa9a1636ce4284c18ec531",
+    "lockSlot": "0x60d8e5a55e057de0408165e72f850b1bbeb682562cca3eb95b01674e4ef129f5",
+    "revealStc": "0x42af6ea6b7d2f508d6d3282be0bbbba24c074a34927c89c59f0a76c517d87dfa",
+    "revealClient": "0x0402c0ccd456ccf9018b3661b3b2c70a4b1b838148d685660591003d8d0e073e",
+    "revealAuditor": "0xac9238ef46a1675a621bdd02b5715c5e83f86e1ce2a943c0bfc70d0abc87ec96",
+    "closeAttempt1": "0x9fb5d296d6ac092a53965318bdaa330d07905f4fd624c3046797865d05ec5816",
+    "rfcInput": "xaxx-010101 000",
+    "rfcCanonical": "XAXX010101000"
+  },
+  "receiptPublicKey": "302a300506032b6570032100f0a543f48064d1a7df8b1aa5d7c22dec067cbf45a2a15a86a4c1d3a2990710fb",
+  "deployment": "cd2daa0cadabb7a4d7d50c8b090a4c9578ff22dfdff5ae7c797d985113ba6ef1",
+  "receipt": {
+    "signedText": "{\"acceptedAt\":\"2026-11-07T12:00:00.000Z\",\"deployment\":\"cd2daa0cadabb7a4d7d50c8b090a4c9578ff22dfdff5ae7c797d985113ba6ef1\",\"entries\":[{\"key\":\"0x60d8e5a55e057de0408165e72f850b1bbeb682562cca3eb95b01674e4ef129f5\",\"value\":\"0x8768f8a00bfacdc54d2272861a7a015207204c38aba124406bf1cf3ea9339572\"}],\"kind\":\"STYX_SUBMISSION_RECEIPT\",\"operation\":\"MOIRA_BLOQUEO\",\"receiptId\":\"91eba447b97ec99d285d2e43ef80d30e5156a2cca88a1824090ca4f650827e35\",\"submitter\":{\"ref\":\"8996202e9ee1fb639b52fae9e78727fa375b1e8eeab259fb71ec75371c6ec554\",\"type\":\"CLIENTE_MOIRA\"},\"version\":1}",
+    "signature": "7f8f88cc6ac3e8e5f80425969beeff056aa08be06c1669c3c3c80e4986f0880b4f185ac9740ca78a4a5e6a4f0be93713a367b9efc7783f0c1c581e653eebf70e"
+  },
+  "statement": {
+    "signedText": "{\"clientRef\":\"8996202e9ee1fb639b52fae9e78727fa375b1e8eeab259fb71ec75371c6ec554\",\"deployment\":\"cd2daa0cadabb7a4d7d50c8b090a4c9578ff22dfdff5ae7c797d985113ba6ef1\",\"issuedAt\":\"2026-11-07T12:00:00.000Z\",\"kind\":\"STYX_CLIENT_REF_STATEMENT\",\"rfc\":\"XAXX010101000\",\"version\":1}",
+    "signature": "0728202324147c6ba020621e3328bc2b41bebb4b20eb6509f642602148282f125b55eacea55781b43f7a8c69154b7057dfee974990254d1e92a506b9cf801404"
+  },
+  "lockAcceptance": {
+    "signedText": "{\"acceptedAt\":\"2026-11-07T12:00:00.000Z\",\"deployment\":\"cd2daa0cadabb7a4d7d50c8b090a4c9578ff22dfdff5ae7c797d985113ba6ef1\",\"kind\":\"MOIRA_LOCK_ACCEPTANCE\",\"lockId\":\"0123456789abcdef0123456789abcdef\",\"lockRecordHash\":\"1096e167a335d79382d8ced63ba48e3ed18478dbd365ae5d8db9a2583666fc84\",\"priorDiagnosis\":false,\"version\":1}",
+    "signature": "2255439d672d07aa197dc22cada4e114567e3857a09ebf36e31c310a284690704a933d6c5364d0b60f2c399a2d47ce2648e748074b94df3186babe8807f83608"
+  }
+}

@@ -1,0 +1,37 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.2
+      - name: Test
+        run: node --test test/*.test.ts
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.28.0 (checksum verified)
+        run: |
+          set -euo pipefail
+          V=8.28.0
+          B=https://github.com/gitleaks/gitleaks/releases/download/v${V}
+          curl -sSfL -o gl.tgz "$B/gitleaks_${V}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt "$B/gitleaks_${V}_checksums.txt"
+          grep " gitleaks_${V}_linux_x64.tar.gz$" checksums.txt | sed 's/ .*/  gl.tgz/' | sha256sum -c -
+          tar -xzf gl.tgz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+      - name: Scan
+        run: gitleaks git --redact --no-banner --exit-code 1

@@ -1,0 +1,14 @@
+{
+  "name": "cerberus-styx-verify",
+  "version": "0.1.0",
+  "description": "Verify code for the Styx log: key derivations, receipt and statement checks, read-only quorum reader. No keys, no signer.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  }
+}
