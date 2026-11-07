@@ -15,13 +15,30 @@
 // never across chains.
 
 import { claveIntento, type TipoIntento } from "./claves-moira.ts";
+import { exigirDespliegueModoPrueba, type DespliegueStyxPublicado } from "./despliegue.ts";
 import { keccak256Hex } from "./keccak256.ts";
 
 export type CadenaTestigo = "ALERA" | "POLYGON" | "SEI";
 
+/**
+ * The quorum a read was made under. "2_OF_3": two of ALERA, POLYGON and SEI
+ * agree. "TEST_2_OF_2": test mode with POLYGON and SEI only, both must agree;
+ * every report built on it must say "2 of 2, test mode".
+ */
+export type ModoTestigo = "2_OF_3" | "TEST_2_OF_2";
+
+/** The words every read and report in two-chain test mode must carry. */
+export const ETIQUETA_MODO_PRUEBA = "2 of 2, test mode";
+
+export function etiquetaModoTestigo(modo: ModoTestigo): string {
+  return modo === "TEST_2_OF_2" ? ETIQUETA_MODO_PRUEBA : "2 of 3";
+}
+
 export interface EntradaConTiempos {
   readonly value: string;
   readonly escritoEn: readonly { readonly cadena: CadenaTestigo; readonly ms: number }[];
+  /** Under which quorum this value was read. */
+  readonly modo: ModoTestigo;
 }
 
 /** The two JSON-RPC reads the client needs; any EVM JSON-RPC client can provide them. */
@@ -149,6 +166,9 @@ export async function leerEntradaQuorum(
       return undefined;
     }
   }));
+  // Three chains: two must agree. Two chains (test mode): both must agree.
+  if (cadenas.length !== 3 && cadenas.length !== 2) throw new Error("CHAIN_WITNESS_CONFIG_INVALID");
+  const modo: ModoTestigo = cadenas.length === 3 ? "2_OF_3" : "TEST_2_OF_2";
   const groups = new Map<string, { readonly cadena: CadenaTestigo; readonly timestampS: bigint }[]>();
   for (const answer of answers) {
     if (answer === undefined) continue;
@@ -163,7 +183,7 @@ export async function leerEntradaQuorum(
       if (!Number.isSafeInteger(ms)) resultadoInvalido();
       return Object.freeze({ cadena: member.cadena, ms });
     });
-    return Object.freeze({ value: id, escritoEn: Object.freeze(tiempos) });
+    return Object.freeze({ value: id, escritoEn: Object.freeze(tiempos), modo });
   }
   throw new Error("CHAIN_WITNESS_NO_QUORUM");
 }
@@ -186,8 +206,16 @@ async function conLimite<T>(work: Promise<T>, ms: number): Promise<T> {
 const MAX_EDAD_TOPE_MS = 24 * 60 * 60 * 1000;
 
 export interface LectorTestigoStyxConfig {
-  /** Exactly the three chains ALERA, POLYGON and SEI, each once. */
+  /**
+   * Exactly the three chains ALERA, POLYGON and SEI, each once; or, in
+   * two-chain test mode, exactly POLYGON and SEI together with
+   * `despliegueFijado` and `idDespliegueEsperado`.
+   */
   readonly cadenas: readonly CadenaLecturaStyx[];
+  /** Test mode only: the pinned deployment record; it must say TEST_2_OF_2. */
+  readonly despliegueFijado?: DespliegueStyxPublicado;
+  /** Test mode only: the deployment id the caller pins as a constant. */
+  readonly idDespliegueEsperado?: string;
   /** Local clock in ms. Default Date.now. */
   readonly ahoraMs?: () => number;
   /** Oldest finalized block that still votes, in ms; at most 24 hours. */
@@ -205,37 +233,80 @@ export class LectorTestigoStyx {
   readonly #maxEdad: number;
   readonly #maxIntentos: number;
   readonly #limiteCadena: number;
+  readonly #modo: ModoTestigo;
 
   public constructor(config: LectorTestigoStyxConfig) {
-    if (config === null || typeof config !== "object" || !Array.isArray(config.cadenas)
-      || config.cadenas.length !== 3
-      || new Set(config.cadenas.map((cadena) => cadena?.chain)).size !== 3
-      || config.cadenas.some((cadena) => cadena === null || typeof cadena !== "object"
-        || !CHAINS.has(cadena.chain) || typeof cadena.contract !== "string" || !ADDRESS.test(cadena.contract)
+    const invalid = (): never => { throw new Error("CHAIN_WITNESS_READER_CONFIG_INVALID"); };
+    if (config === null || typeof config !== "object") invalid();
+    // Every field, and every chain's fields, read exactly once into a frozen
+    // copy: the checks, the test-mode guard and the stored wiring all use the
+    // same snapshot, so a getter cannot show one wiring and store another.
+    let snap: {
+      cadenas: readonly CadenaLecturaStyx[]; ahoraMs: unknown; maxEdadMs: unknown; limiteCadenaMs: unknown;
+      maxIntentosLectura: unknown; despliegueFijado: unknown; idDespliegueEsperado: unknown;
+    };
+    try {
+      const { cadenas, ahoraMs, maxEdadMs, limiteCadenaMs, maxIntentosLectura, despliegueFijado, idDespliegueEsperado } =
+        config as unknown as Record<string, unknown>;
+      if (!Array.isArray(cadenas)) invalid();
+      const copia = Array.from(cadenas as unknown[], (cadena) => {
+        if (cadena === null || typeof cadena !== "object") invalid();
+        const { chain, rpc, contract, writer } = cadena as Record<string, unknown>;
+        return Object.freeze({ chain, rpc, contract, writer }) as unknown as CadenaLecturaStyx;
+      });
+      snap = { cadenas: Object.freeze(copia), ahoraMs, maxEdadMs, limiteCadenaMs, maxIntentosLectura, despliegueFijado, idDespliegueEsperado };
+    } catch {
+      invalid();
+    }
+    const { cadenas, ahoraMs, maxEdadMs, limiteCadenaMs, maxIntentosLectura, despliegueFijado, idDespliegueEsperado } = snap!;
+    const n = cadenas.length;
+    if ((n !== 3 && n !== 2)
+      || new Set(cadenas.map((cadena) => cadena.chain)).size !== n
+      || (n === 2 && cadenas.some((cadena) => cadena.chain === "ALERA"))
+      || cadenas.some((cadena) => !CHAINS.has(cadena.chain)
+        || typeof cadena.contract !== "string" || !ADDRESS.test(cadena.contract)
         || typeof cadena.writer !== "string" || !ADDRESS.test(cadena.writer)
         || cadena.rpc === null || typeof cadena.rpc !== "object"
         || typeof cadena.rpc.call !== "function" || typeof cadena.rpc.getBlockByNumber !== "function")
       // Three chains behind one RPC object are one source, not a quorum.
-      || new Set(config.cadenas.map((cadena) => cadena.rpc)).size !== 3
-      || (config.ahoraMs !== undefined && typeof config.ahoraMs !== "function")
-      || !Number.isSafeInteger(config.maxEdadMs) || config.maxEdadMs < 1 || config.maxEdadMs > MAX_EDAD_TOPE_MS
-      || (config.limiteCadenaMs !== undefined && (!Number.isSafeInteger(config.limiteCadenaMs)
-        || config.limiteCadenaMs < 1 || config.limiteCadenaMs > 120_000))
-      || (config.maxIntentosLectura !== undefined
-        && (!Number.isSafeInteger(config.maxIntentosLectura) || config.maxIntentosLectura < 1
-          || config.maxIntentosLectura > 1024))) {
-      throw new Error("CHAIN_WITNESS_READER_CONFIG_INVALID");
+      || new Set(cadenas.map((cadena) => cadena.rpc)).size !== n
+      || (ahoraMs !== undefined && typeof ahoraMs !== "function")
+      || typeof maxEdadMs !== "number" || !Number.isSafeInteger(maxEdadMs) || maxEdadMs < 1 || maxEdadMs > MAX_EDAD_TOPE_MS
+      || (limiteCadenaMs !== undefined && (typeof limiteCadenaMs !== "number" || !Number.isSafeInteger(limiteCadenaMs)
+        || limiteCadenaMs < 1 || limiteCadenaMs > 120_000))
+      || (maxIntentosLectura !== undefined && (typeof maxIntentosLectura !== "number"
+        || !Number.isSafeInteger(maxIntentosLectura) || maxIntentosLectura < 1 || maxIntentosLectura > 1024))) {
+      invalid();
     }
-    this.#cadenas = Object.freeze(config.cadenas.map((cadena) => Object.freeze({
-      chain: cadena.chain, rpc: cadena.rpc, contract: cadena.contract, writer: cadena.writer,
-    })));
-    this.#ahora = config.ahoraMs ?? Date.now;
-    this.#maxEdad = config.maxEdadMs;
-    this.#maxIntentos = config.maxIntentosLectura ?? 64;
-    this.#limiteCadena = config.limiteCadenaMs ?? 10_000;
+    if (n === 2) {
+      // Two chains only when the pinned deployment itself says TEST_2_OF_2.
+      exigirDespliegueModoPrueba(despliegueFijado as DespliegueStyxPublicado, idDespliegueEsperado as string, cadenas);
+    } else if (despliegueFijado !== undefined || idDespliegueEsperado !== undefined) {
+      invalid();
+    }
+    this.#modo = n === 3 ? "2_OF_3" : "TEST_2_OF_2";
+    this.#cadenas = cadenas;
+    this.#ahora = (ahoraMs as (() => number) | undefined) ?? Date.now;
+    this.#maxEdad = maxEdadMs as number;
+    this.#maxIntentos = (maxIntentosLectura as number | undefined) ?? 64;
+    this.#limiteCadena = (limiteCadenaMs as number | undefined) ?? 10_000;
   }
 
-  /** The quorum value under `key` with its entry times, or null when agreed unwritten. */
+  /** Under which quorum every read of this reader is made. */
+  public get modo(): ModoTestigo {
+    return this.#modo;
+  }
+
+  /** "2 of 2, test mode" or "2 of 3": print it in every report built on this reader. */
+  public get etiquetaModo(): string {
+    return etiquetaModoTestigo(this.#modo);
+  }
+
+  /**
+   * The quorum value under `key` with its entry times, or null when agreed
+   * unwritten. A value carries its `modo`; a null (and every value-only read)
+   * is labeled by this reader's `modo`, which reports must print.
+   */
   public async leerClaveConTiempos(key: string): Promise<EntradaConTiempos | null> {
     if (typeof key !== "string" || !BYTES32.test(key)) throw new Error("CHAIN_WITNESS_KEY_INVALID");
     const now = this.#ahora();

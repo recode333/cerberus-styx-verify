@@ -266,3 +266,66 @@ test("SV-10 a two-chain test deployment (POLYGON and SEI) gets its own id, never
   assert.throws(() => idDespliegueStyx([polygon, polygon], pub), /STYX_DEPLOYMENT_INVALID/);
   assert.throws(() => idDespliegueStyx([polygon], pub), /STYX_DEPLOYMENT_INVALID/);
 });
+
+test("SV-11 two-chain test mode: only with a pinned TEST_2_OF_2 record; both chains must agree; reads are labeled", async () => {
+  const chains = { POLYGON: new ChainFalsa(), SEI: new ChainFalsa() };
+  const pub = "302a300506032b6570032100" + "11".repeat(32);
+  const chainsRecord = [
+    { chain: "POLYGON" as const, chainId: "80002", contract: CONTRACT, writer: WRITER },
+    { chain: "SEI" as const, chainId: "1328", contract: CONTRACT, writer: WRITER },
+  ];
+  const deploymentId = idDespliegueStyx(chainsRecord, pub);
+  const record = { kind: "STYX_DEPLOYMENT" as const, version: 1 as const, mode: "TEST_2_OF_2" as const, chains: chainsRecord, receiptPublicKey: pub, deploymentId };
+  const cadenas: CadenaLecturaStyx[] = (["POLYGON", "SEI"] as const).map((chain) => ({ chain, rpc: chains[chain], contract: CONTRACT, writer: WRITER }));
+  const base = { cadenas, ahoraMs: () => NOW_MS, maxEdadMs: 60_000 };
+  for (const bad of [
+    base,
+    { ...base, despliegueFijado: { ...record, mode: undefined } as never, idDespliegueEsperado: deploymentId },
+    { ...base, despliegueFijado: record, idDespliegueEsperado: "ab".repeat(32) },
+    { ...base, despliegueFijado: { ...record, deploymentId: "cd".repeat(32) }, idDespliegueEsperado: "cd".repeat(32) },
+    { ...base, cadenas: cadenas.map((c) => c.chain === "SEI" ? { ...c, contract: `0x${"c2".repeat(20)}` } : c), despliegueFijado: record, idDespliegueEsperado: deploymentId },
+  ]) {
+    assert.throws(() => new LectorTestigoStyx(bad), /CHAIN_WITNESS_TEST_MODE_REFUSED/);
+  }
+  assert.throws(() => new LectorTestigoStyx({ ...base, cadenas: cadenas.map((c) => c.chain === "SEI" ? { ...c, chain: "ALERA" as const } : c), despliegueFijado: record, idDespliegueEsperado: deploymentId }), /READER_CONFIG_INVALID/);
+  const reader = new LectorTestigoStyx({ ...base, despliegueFijado: record, idDespliegueEsperado: deploymentId });
+  assert.equal(reader.modo, "TEST_2_OF_2");
+  assert.equal(reader.etiquetaModo, "2 of 2, test mode");
+  const key = V.moira.lockSlot;
+  const value = `0x${"66".repeat(32)}`;
+  chains.POLYGON.entries.set(key, { value, timeS: NOW_MS / 1000 - 100 });
+  await assert.rejects(() => reader.leerClave(key), /CHAIN_WITNESS_NO_QUORUM/);
+  chains.SEI.entries.set(key, { value, timeS: NOW_MS / 1000 - 90 });
+  const entry = await reader.leerClaveConTiempos(key);
+  assert.equal(entry?.modo, "TEST_2_OF_2");
+  assert.equal(entry?.escritoEn.length, 2);
+  // A three-chain reader labels its reads 2 of 3 and refuses a pinned record.
+  const three = lector();
+  assert.equal(three.reader.modo, "2_OF_3");
+  assert.equal(three.reader.etiquetaModo, "2 of 3");
+});
+
+test("SV-12 review fixes: config and record are read once; hostile objects are clean refusals", () => {
+  const chains = { POLYGON: new ChainFalsa(), SEI: new ChainFalsa() };
+  const pub = "302a300506032b6570032100" + "11".repeat(32);
+  const chainsRecord = [
+    { chain: "POLYGON" as const, chainId: "80002", contract: CONTRACT, writer: WRITER },
+    { chain: "SEI" as const, chainId: "1328", contract: CONTRACT, writer: WRITER },
+  ];
+  const deploymentId = idDespliegueStyx(chainsRecord, pub);
+  const record = { kind: "STYX_DEPLOYMENT" as const, version: 1 as const, mode: "TEST_2_OF_2" as const, chains: chainsRecord, receiptPublicKey: pub, deploymentId };
+  const genuine: CadenaLecturaStyx[] = (["POLYGON", "SEI"] as const).map((chain) => ({ chain, rpc: chains[chain], contract: CONTRACT, writer: WRITER }));
+  const other = genuine.map((c) => ({ ...c, contract: `0x${"11".repeat(20)}` }));
+  let reads = 0;
+  const config = {
+    get cadenas() { reads += 1; return reads === 1 ? genuine : other; },
+    ahoraMs: () => NOW_MS, maxEdadMs: 60_000, despliegueFijado: record, idDespliegueEsperado: deploymentId,
+  };
+  const reader = new LectorTestigoStyx(config);
+  assert.equal(reads, 1);
+  assert.equal(reader.modo, "TEST_2_OF_2");
+  const hostile = new Proxy({}, { get() { throw new Error("boom"); }, ownKeys() { throw new Error("boom"); } });
+  assert.throws(() => new LectorTestigoStyx({ ...config, cadenas: genuine, despliegueFijado: hostile as never }), /CHAIN_WITNESS_TEST_MODE_REFUSED/);
+  assert.throws(() => new LectorTestigoStyx({ ...config, cadenas: genuine, despliegueFijado: { ...record, chains: [hostile, hostile] } as never }), /CHAIN_WITNESS_TEST_MODE_REFUSED/);
+  assert.throws(() => new LectorTestigoStyx(hostile as never), /READER_CONFIG_INVALID/);
+});

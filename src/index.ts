@@ -4,7 +4,12 @@
 
 export { keccak256, keccak256Hex } from "./keccak256.ts";
 export { serializarJcs } from "./jcs.ts";
-export { idDespliegueStyx, type CadenaDespliegueStyx } from "./despliegue.ts";
+export {
+  exigirDespliegueModoPrueba,
+  idDespliegueStyx,
+  type CadenaDespliegueStyx,
+  type DespliegueStyxPublicado,
+} from "./despliegue.ts";
 export {
   canonicalizarRfc,
   claveBloqueoMoira,
@@ -43,11 +48,14 @@ export {
 } from "./declaracion-referencia.ts";
 export {
   CHAIN_WITNESS_MAX_ADELANTO_MS,
+  ETIQUETA_MODO_PRUEBA,
+  etiquetaModoTestigo,
   LectorTestigoStyx,
   SELECTOR_GET_ONE_ENTRY_LOG,
   type CadenaLecturaStyx,
   type CadenaTestigo,
   type EntradaConTiempos,
   type LectorTestigoStyxConfig,
+  type ModoTestigo,
   type RpcLecturaStyx,
 } from "./lector-testigo.ts";
