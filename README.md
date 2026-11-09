@@ -11,7 +11,10 @@ keys, no signer, no client data and no service addresses.
 | Module | What it checks |
 | --- | --- |
 | `claves-moira.ts` | The on-chain keys of Moira entries (salt commitment, salt key, owner tag, lock key, reveal slots, attempt keys) and the one canonical form of an RFC. |
-| `recibo.ts` | Submission receipts signed by the operator's receipt key: canonical text, fields, Ed25519 signature under the domain `STYX-SUBMISSION-RECEIPT-V1`, and the expected deployment (a required argument). |
+| `sello-hades.ts` | The on-chain keys and values of Hades box log head seals: restore heads (reason, sequence, 24 bytes of the head hash) and daily heads (their own series, the full 32-byte head hash), the head checks, and decoding. |
+| `arranque-caja.ts` | The box start check: a Hades box compares its local evidence log with every past seal of both series, read straight from the chains through the reader below. A pass is a self-check, never attestation. |
+| `rpc-lectura.ts` | A minimal read-only JSON-RPC client for one chain: only chain id, block number, block by number, code, call and logs; every other method is refused in code. https only, certificate checks on, no credentials in URLs, optional provider key header, no proxy unless configured (CONNECT, TLS end to end), timeouts, size caps, chunked log reads. Endpoints come from the caller's config; none are in this package. |
+| `recibo.ts` | Submission receipts (operations include HADES_SELLO_CABEZA and HADES_SELLO_DIARIO) signed by the operator's receipt key: canonical text, fields, Ed25519 signature under the domain `STYX-SUBMISSION-RECEIPT-V1`, and the expected deployment (a required argument). |
 | `declaracion-referencia.ts` | Statements linking a client reference to an RFC, signed under the domain `STYX-CLIENT-REF-STATEMENT-V1`, for the expected deployment. |
 | `lector-testigo.ts` | A read-only reader of the OneEntryLog contract on three chains (ALERA, Polygon, Sei) at each chain's finalized block. A value counts only when two fresh chains agree; each agreeing chain's stored entry time comes with it. Each chain needs its own RPC client; a chain that does not answer in time gives no vote. |
 | `aceptacion-bloqueo.ts` | Moira lock acceptances signed under the domain `MOIRA-LOCK-ACCEPTANCE-V1`, for the expected deployment. |
