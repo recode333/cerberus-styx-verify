@@ -22,6 +22,19 @@ export {
   type TipoIntento,
 } from "./claves-moira.ts";
 export {
+  claveSelloDiarioHades,
+  claveSelloHades,
+  decodificarSelloDiarioHades,
+  decodificarSelloHades,
+  SEQ_MAX_SELLO_HADES,
+  validarCabezaHades,
+  valorSelloDiarioHades,
+  valorSelloHades,
+  type CabezaLogHades,
+  type MotivoSelloHades,
+  type SelloHadesLeido,
+} from "./sello-hades.ts";
+export {
   mensajeReciboFirmado,
   textoRecibo,
   validarCamposRecibo,
@@ -59,3 +72,21 @@ export {
   type ModoTestigo,
   type RpcLecturaStyx,
 } from "./lector-testigo.ts";
+export {
+  comprobarSellosDiarios,
+  comprobarSellosRestauracion,
+  ultimoSelloDiario,
+  ultimoSelloRestauracion,
+  verificarArranqueCaja,
+  type LectorArranqueCaja,
+  type LeerClaveStyx,
+  type LogArranqueCaja,
+  type ResultadoArranqueCaja,
+  type SelloDiarioLeido,
+} from "./arranque-caja.ts";
+export {
+  ClienteRpcLectura,
+  METODOS_RPC_LECTURA,
+  type ClienteRpcLecturaConfig,
+  type MetodoRpcLectura,
+} from "./rpc-lectura.ts";

@@ -41,7 +41,9 @@ export type OperacionReciboStyx =
   | "MOIRA_CIERRE"
   | "MOIRA_REVELACION_CLIENTE"
   | "MOIRA_REVELACION_STC"
-  | "MOIRA_REVELACION_AUDITOR";
+  | "MOIRA_REVELACION_AUDITOR"
+  | "HADES_SELLO_CABEZA"
+  | "HADES_SELLO_DIARIO";
 
 export interface EntradaReciboStyx {
   readonly key: string;
@@ -67,6 +69,8 @@ const KIND = "STYX_SUBMISSION_RECEIPT";
 const OPERATIONS: ReadonlySet<string> = new Set([
   "MOIRA_REGISTRAR_SAL", "MOIRA_BLOQUEO", "MOIRA_CIERRE",
   "MOIRA_REVELACION_CLIENTE", "MOIRA_REVELACION_STC", "MOIRA_REVELACION_AUDITOR",
+  "HADES_SELLO_CABEZA",
+  "HADES_SELLO_DIARIO",
 ]);
 const SUBJECTS: ReadonlySet<string> = new Set(["CLIENTE_MOIRA", "STC_MOIRA", "AUDITOR_MOIRA", "CAJA_HADES"]);
 const HEX32 = /^[0-9a-f]{64}$/u;
