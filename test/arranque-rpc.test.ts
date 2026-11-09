@@ -71,10 +71,12 @@ async function cadena(chainId: number, opts: { delayMs?: number; huge?: boolean 
       res.end(opts.huge === true ? `${text}${" ".repeat(2 << 20)}` : text);
     });
   });
+  const conexiones = { n: 0 };
+  server.on("connection", () => { conexiones.n += 1; });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   after(() => server.close());
   const port = (server.address() as AddressInfo).port;
-  return { entries, methods, url: `https://127.0.0.1:${port}/rpc` };
+  return { entries, methods, conexiones, url: `https://127.0.0.1:${port}/rpc` };
 }
 
 function lector(polygon: ClienteRpcLectura, sei: ClienteRpcLectura): LectorTestigoStyx {
@@ -242,9 +244,12 @@ test("RA-06 no proxy by default even with proxy variables set; an explicit CONNE
   // An explicit CONNECT proxy: it only sees the tunnel target, never the key or the body.
   const seen: string[] = [];
   const tunnels: net.Socket[] = [];
+  let tunelesAbiertos = 0;
+  let bytesPorTunel = 0;
   const proxy = http.createServer();
   proxy.on("connect", (req, client, head) => {
     seen.push(String(req.url));
+    tunelesAbiertos += 1;
     const [host, port] = String(req.url).split(":");
     tunnels.push(client as net.Socket);
     const up = net.connect(Number(port), host, () => {
@@ -254,7 +259,10 @@ test("RA-06 no proxy by default even with proxy variables set; an explicit CONNE
       up.pipe(client);
       client.pipe(up);
     });
-    client.on("data", (d: Buffer) => seen.push(d.toString("latin1")));
+    client.on("data", (d: Buffer) => {
+      bytesPorTunel += d.length;
+      seen.push(d.toString("latin1"));
+    });
   });
   await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
   after(() => {
@@ -264,8 +272,28 @@ test("RA-06 no proxy by default even with proxy variables set; an explicit CONNE
   const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
   const viaProxy = cliente(p.url, 80002, { proxy: proxyUrl, cabeceraClave: { nombre: "x-api-key", valor: "SYNTHETIC-KEY-123" } });
   const before = p.methods.length;
+  const conexionesAntes = p.conexiones.n;
   await viaProxy.getBlockByNumber("finalized");
-  assert.ok(p.methods.length > before, "the chain answered through the tunnel");
+  assert.ok(p.methods.length > before, "the chain answered");
+  // Every connection the RPC host saw came through a tunnel, and TLS bytes flowed through it.
+  assert.equal(p.conexiones.n - conexionesAntes, tunelesAbiertos, "no direct connection to the RPC host");
+  assert.ok(bytesPorTunel > 0, "the request really used the tunnel");
+  // A proxy that accepts CONNECT but never reaches the host: the call must fail, never go direct.
+  const sumidero = http.createServer();
+  const sumideroSockets: net.Socket[] = [];
+  sumidero.on("connect", (_req, client) => {
+    sumideroSockets.push(client as net.Socket);
+    client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+  });
+  await new Promise<void>((resolve) => sumidero.listen(0, "127.0.0.1", resolve));
+  after(() => {
+    for (const t of sumideroSockets) t.destroy();
+    sumidero.close();
+  });
+  const conexionesAntes2 = p.conexiones.n;
+  const ciego = cliente(p.url, 80002, { proxy: `http://127.0.0.1:${(sumidero.address() as AddressInfo).port}`, limiteEsperaMs: 1500 });
+  await assert.rejects(ciego.llamar("eth_blockNumber", []), /STYX_RPC_UNAVAILABLE/u);
+  assert.equal(p.conexiones.n, conexionesAntes2, "nothing bypassed the proxy");
   assert.ok(seen.some((x) => /^127\.0\.0\.1:\d+$/u.test(x)), "proxy saw only host:port");
   assert.ok(!seen.join("").includes("SYNTHETIC-KEY-123"), "the key never crossed the proxy in clear");
   assert.ok(!seen.join("").includes("eth_getBlockByNumber"), "the body never crossed the proxy in clear");
@@ -307,4 +335,45 @@ test("RA-08 certificate checks stay on: a host whose certificate does not chain 
   const c = new ClienteRpcLectura({ urls: [p.url], chainIdEsperado: 80002, limiteEsperaMs: 3000 });
   await assert.rejects(c.llamar("eth_blockNumber", []), /STYX_RPC_UNAVAILABLE/u);
   assert.equal(p.methods.length, 0);
+});
+
+test("RA-09 audit: a refused answer with an endless body closes the socket; log ranges and params are capped once", async () => {
+  const open = new Set<net.Socket>();
+  const bad = https.createServer({ cert: f("rpc.crt"), key: f("rpc.key") }, (req, res) => {
+    let body = "";
+    req.on("data", (d) => { body += String(d); });
+    req.on("end", () => {
+      const msg = JSON.parse(body) as { id: number; method: string };
+      if (msg.method === "eth_chainId") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: "0x530" }));
+        return;
+      }
+      res.writeHead(500, { "content-type": "text/plain" });
+      res.write("never ending");
+    });
+  });
+  bad.on("connection", (s: net.Socket) => {
+    open.add(s);
+    s.on("close", () => open.delete(s));
+  });
+  await new Promise<void>((resolve) => bad.listen(0, "127.0.0.1", resolve));
+  after(() => {
+    for (const s of open) s.destroy();
+    bad.close();
+  });
+  const c = cliente(`https://127.0.0.1:${(bad.address() as AddressInfo).port}/`, 1328, { limiteEsperaMs: 1500 });
+  await assert.rejects(c.llamar("eth_blockNumber", []), /STYX_RPC_UNAVAILABLE/u);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(open.size, 0, "no socket left open");
+  // Range cap: at most 1000 ranges per call.
+  const good = await cadena(1328);
+  await assert.rejects(cliente(good.url, 1328).getLogsEnTramos({ address: CONTRACTS.SEI, topics: [], desde: 0n, hasta: 10_000_000n, tramo: 1000 }), /STYX_RPC_PARAMS_INVALID/u);
+  // Params serialized once: a toJSON that grows on a second call cannot slip past the size cap.
+  let calls = 0;
+  const sly = { toJSON: () => (calls++ === 0 ? "x" : "y".repeat(100_000)) };
+  const before = good.methods.length;
+  await cliente(good.url, 1328).llamar("eth_getCode", [sly, "finalized"]).catch(() => undefined);
+  assert.equal(calls, 1, "serialized exactly once");
+  assert.ok(good.methods.length - before <= 2);
 });

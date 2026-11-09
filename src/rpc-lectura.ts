@@ -6,6 +6,8 @@
 //
 // - Endpoints only from the box config: one to four https URLs per chain,
 //   certificate checks on, no credentials, query or fragment in the URL.
+//   A provider key must go in `cabeceraClave`, never in the URL path: the
+//   client cannot tell a key from a path segment.
 //   Tried in order; the first that answers correctly wins.
 // - An optional provider key travels in one request header taken from a
 //   separate secret file; it never appears in errors.
@@ -151,15 +153,17 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
     } catch {
       throw new Error("STYX_RPC_PARAMS_INVALID");
     }
-    if (cuerpoParams.length > 8192) throw new Error("STYX_RPC_PARAMS_INVALID");
+    if (typeof cuerpoParams !== "string" || cuerpoParams.length > 8192 || !cuerpoParams.startsWith("[")) {
+      throw new Error("STYX_RPC_PARAMS_INVALID");
+    }
     for (let i = 0; i < this.#destinos.length; i += 1) {
       try {
         if (!this.#verificados.has(i)) {
-          const id = await this.#enviar(i, "eth_chainId", []);
+          const id = await this.#enviar(i, "eth_chainId", "[]");
           if (id !== this.#chainId) continue;
           this.#verificados.add(i);
         }
-        return await this.#enviar(i, metodo, params);
+        return await this.#enviar(i, metodo, cuerpoParams);
       } catch {
         // Next URL; the reason never leaves this function (it may name a host).
       }
@@ -187,7 +191,7 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
 
   /**
    * Logs of one contract between two blocks, read in ranges of `tramo`
-   * blocks, at most `maxEntradas` entries in total.
+   * blocks (at most 1000 ranges), at most `maxEntradas` entries in total.
    */
   public async getLogsEnTramos(filtro: {
     readonly address: string;
@@ -201,7 +205,8 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
     const max = entero(filtro.maxEntradas, 10_000, 1, 100_000);
     if (typeof filtro.address !== "string" || !ADDRESS.test(filtro.address)
       || typeof filtro.desde !== "bigint" || typeof filtro.hasta !== "bigint"
-      || filtro.desde < 0n || filtro.hasta < filtro.desde || !Array.isArray(filtro.topics) || filtro.topics.length > 4) {
+      || filtro.desde < 0n || filtro.hasta < filtro.desde || !Array.isArray(filtro.topics) || filtro.topics.length > 4
+      || (filtro.hasta - filtro.desde) / tramo >= 1000n) {
       throw new Error("STYX_RPC_PARAMS_INVALID");
     }
     const out: unknown[] = [];
@@ -214,8 +219,8 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
         toBlock: `0x${to.toString(16)}`,
       }]);
       if (!Array.isArray(r)) throw new Error("STYX_RPC_ANSWER_INVALID");
-      out.push(...r);
-      if (out.length > max) throw new Error("STYX_RPC_ANSWER_TOO_LARGE");
+      if (out.length + r.length > max) throw new Error("STYX_RPC_ANSWER_TOO_LARGE");
+      for (const entrada of r) out.push(entrada);
     }
     return Object.freeze(out);
   }
@@ -245,11 +250,12 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
     });
   }
 
-  async #enviar(indice: number, metodo: string, params: readonly unknown[]): Promise<unknown> {
+  /** `params` is the JSON text serialized once by `llamar`, so what was size-checked is what is sent. */
+  async #enviar(indice: number, metodo: string, params: string): Promise<unknown> {
     const d = this.#destinos[indice] as Destino;
     this.#id += 1;
     const id = this.#id;
-    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method: metodo, params }), "utf8");
+    const body = Buffer.from(`{"jsonrpc":"2.0","id":${id},"method":${JSON.stringify(metodo)},"params":${params}}`, "utf8");
     const tunel = this.#proxy === null ? null : await this.#conectarProxy(d);
     const texto = await new Promise<string>((resolve, reject) => {
       let terminado = false;
@@ -286,10 +292,13 @@ export class ClienteRpcLectura implements RpcLecturaStyx {
         ...tlsOpts,
         ...(tunel === null
           ? { agent: new https.Agent({ keepAlive: false, maxCachedSessions: 0 }) }
-          : { agent: false, createConnection: () => tls.connect({ ...tlsOpts, socket: tunel, host: d.host }) }),
+          // No agent: Node uses createConnection only when `agent` is left out
+          // (with `agent: false` it would silently connect directly).
+          : { createConnection: () => tls.connect({ ...tlsOpts, socket: tunel, host: d.host }) }),
       }, (res) => {
         if (res.statusCode !== 200 || !/^application\/json(\s*;|$)/iu.test(String(res.headers["content-type"] ?? ""))) {
-          res.resume();
+          // Never wait for the body of a refused answer: close the socket now.
+          req.destroy();
           fin(new Error("bad status"));
           return;
         }

@@ -41,7 +41,11 @@ export interface SelloDiarioLeido {
 const HEX32 = /^[0-9a-f]{64}$/u;
 const MAX_SELLOS = 2 ** 40;
 
-/** The highest written number of a gapless series, by exponential then binary search; -1 when empty. */
+/**
+ * The highest written number of a gapless series, by exponential then binary
+ * search; null when empty. Seals are written without gaps, so a skipped
+ * number hides every later seal from this search.
+ */
 async function ultimoNumero(leer: (n: number) => Promise<string | null>): Promise<{ n: number; value: string } | null> {
   const first = await leer(0);
   if (first === null) return null;
